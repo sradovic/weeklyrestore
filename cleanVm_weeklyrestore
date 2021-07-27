@@ -1,0 +1,2 @@
+#!/bin/bash
+./lib/cleansite_new_weeklyrestore -t weeklyrestore.web.dem.ch3.bmi

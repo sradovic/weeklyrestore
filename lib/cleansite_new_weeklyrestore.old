@@ -1,0 +1,131 @@
+#!/bin/env bash
+g_target='';
+g_container_name='';
+cleanTarget() {
+	ssh -t -t ${g_target} "
+		if [[ -f /bigmac/bin/cpqctl ]]; then
+			export TERM=linux;
+			if [[ -f /scratch/cpqorabm/.bash_profile ]]; then
+				source /scratch/cpqorabm/.bash_profile || exit 1;
+				sudo bash /bigmac/bin/cpqctl stop;
+			fi;
+		fi;
+		exit 0;
+	" || return 1;
+	sleep 5;
+	ssh -t -t ${g_target} "
+		sudo pkill -9 -f java;
+	";
+	ssh -t -t ${g_target} "
+		sudo pkill -9 -f opmn;
+	";
+	ssh -t -t ${g_target} "
+		sudo pkill -9 -f httpd;
+	";
+	ssh -t -t ${g_target} "
+		if [[ -f /bigmac/bin/upgradeStep.log ]]; then
+			sudo rm -rf /bigmac/bin/upgradeStep.log;
+		fi;
+		if [[ -f /bigmac/container-setup/routeto.sh ]]; then
+			sudo bash /bigmac/container-setup/routeto.sh -f ${g_container_name};
+		fi
+	";
+	ssh -t -t ${g_target} "
+		export TERM=linux;
+		sudo rm -rf /bigmac/;
+		sudo rm -rf /bmfs/;
+		sudo rm -rf /bmfsweb/;
+		sudo rm -rf /cpqtmp/*;
+		sudo rm -rf /upgrade/;
+		sudo rm -rf /usr/local/{oracle_common,oracle_web_tier};
+		sudo rm -rf /tmp/cpq_stage/;
+		sudo rm -rf /tmp/admin_tmp/;
+		sudo rm -rf /tmp/cpq_external/;
+		sudo rm -rf /tmp/cpqServer/;
+		sudo rm -rf /tmp/nm_tmp/;
+		sudo rm -rf /tmp/_wl_proxy/;
+		sudo rm -f /tmp/pki_data*.dmp;
+		sudo rm -f /tmp/jazn-data*;
+		sudo rm -f /tmp/global.dir;
+		sudo rm -f /tmp/global.pag;
+		sudo rm -f /tmp/ip.dir;
+		sudo rm -f /tmp/ip.pag;
+		sudo rm -f /var/tmp/{maintenance,upgrade,refresh,outage};
+		[[ -d /domain_bak ]] && rm -rf /domain_bak;
+		exit 0;
+	" || return 1;
+	return 0;
+}
+
+stopContainer() {
+		ssh -t -t ${g_target} "
+			sudo -i su - --session-command '
+                        docker ps -a -q | xargs docker stop ;
+                        sudo docker ps -a -q | xargs docker rm -v;
+			exit 0;
+                   ';
+		" || return 1;
+		return 0;
+}
+
+getArgs() {
+	[[ ! ${#} > 0 ]] && echo "Usage: bash cleansite --target <target_site>" && return 1;
+		while [[ ${#} > 0 ]]; do
+				local l_arg="${1}";
+				case ${l_arg} in
+				-t|--target)
+				g_target=${2};
+				g_container_name=$(ssh -t -t ${g_target} "pushd /bigmac/container-setup > /dev/null; bash history.sh ACTIVE|head -1");
+				trimVar "g_container_name";
+				shift 2;
+			;;
+			*)
+				echo "Unknown argument \"${l_arg}\"";
+				return 1;
+			;;
+		esac;
+	done;
+	return 0;
+}
+
+trimVar() {
+		local var="${1}";
+		local loc="${2}";
+		if [[ -z "${loc}" ]]; then
+			loc="both";
+		fi;
+		echo "#### Trimming ${var}";
+		local varval="${!var}";
+		if [[ -z "${varval}" ]] ; then
+			echo "#### trimVar variable \"${var}\" does not exist or is not populated.";
+			return 1;
+		fi;
+		case "${loc}" in
+		both)
+				eval ${var}="$(echo "'${varval}'" | sed -e 's/^[[:space:]]*//' -e 's/[[:space:]]*$//' -e 's/\r//')";
+				;;
+		leading|lead)
+				eval ${var}="$(echo "'${varval}'" | sed 's/^[[:space:]]*//')";
+				;;
+		trailing|trail)
+				eval ${var}="$(echo "'${varval}'" | sed 's/[[:space:]]*$//')";
+				;;
+		*)
+				echo "#### Unknown trimVar option: ${loc}";
+				echo "#### Available options: both, leading, lead, trailing, trail";
+				echo "#### Usage: trimVar <option>";
+				;;
+		esac;
+		return 0;
+}
+
+main() {
+	getArgs "${@}" || return 1;
+	cleanTarget || return 1;
+	stopContainer || return 1;
+	return 0;
+}
+
+main "${@}" || exit 1;
+exit 0;
+
